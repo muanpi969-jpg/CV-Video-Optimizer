@@ -1,205 +1,144 @@
-# 🎬 Smart Video CV Optimizer
+Smart Video CV Optimizer
+A small web app for compressing scholarship, RSSP, and university application videos without wrecking the quality.
+The main use case is simple: take a 60–90 second phone video and get it under a strict upload limit like 20 MB while keeping the face, voice, and overall image usable.
+Built with Python, Streamlit, and FFmpeg.
 
-> Professional-grade video compression for scholarship, RSSP, and university application videos.  
-> Compress 60–90 second videos to **under 20 MB** while preserving maximum visual and audio quality.
 
----
+What it does
+* Compresses videos to a target size
+* Supports MP4 and MOV uploads
+* Detects resolution, bitrate, FPS, and duration automatically
+* Uses two-pass FFmpeg encoding for more accurate file sizes
+* Applies basic speech-focused audio cleanup
+* Runs locally or in the browser
+* Works on macOS, Windows, Linux, and Docker
 
-## ✨ Features
 
-| Feature | Description |
-|---|---|
-| 🎯 **Target Size Compression** | Set any target size (e.g. 20 MB) — app auto-calculates optimal bitrates |
-| 🔍 **Smart Video Analysis** | Resolution, FPS, duration, bitrates detected automatically via FFprobe |
-| ⚙️ **4 Quality Modes** | RSSP Optimized · Maximum Quality · Balanced · Smallest File |
-| 🎙️ **Audio Optimization** | EBU R128 loudness normalization, speech clarity enhancement |
-| 📐 **Smart Resolution Scaling** | Reduces resolution only when necessary to hit the target |
-| 🔢 **Two-Pass Encoding** | Precise bitrate targeting for accurate output size |
-| 💾 **No Data Leaves Your Device** | All processing is local — no cloud uploads |
-| 🌐 **Cross-platform** | macOS · Windows · Linux · Docker |
+Why I built it
+A lot of scholarship and immigration applications ask for short introduction videos, but the upload limits are tiny. Most free online compressors either destroy the quality or upload your files to random servers.
+I wanted something simple:
+* drag in a video
+* choose a target size
+* export a cleaner result that still looks decent
+That’s basically the whole idea.
 
----
 
-## 🚀 Quick Start
+Tech stack
+Tool	Purpose
+Python	Backend
+Streamlit	Web interface
+FFmpeg	Video compression
+FFprobe	Video analysis
+Docker	Deployment
 
-### Prerequisites
+Features
+Feature	Notes
+Target size compression	Calculates bitrate automatically
+Video analysis	Reads duration, resolution, FPS, bitrate
+Quality presets	RSSP, Balanced, Max Quality, Smallest File
+Audio cleanup	Loudness normalization + speech-focused filtering
+Smart scaling	Reduces resolution only when necessary
+Local processing	Files stay on your machine unless deployed online
 
-- **Python 3.10+**
-- **FFmpeg** (must be installed and on PATH)
-
-### Install FFmpeg
-
-**macOS (Homebrew):**
-```bash
+Install FFmpeg
+macOS
 brew install ffmpeg
-```
+Ubuntu / Debian
+sudo apt update
+sudo apt install ffmpeg
+Windows
+Download FFmpeg from:
+Gyan.dev FFmpeg Builds
+Add the bin folder to your system PATH, then check:
+ffmpeg -version
 
-**Windows:**
-1. Download from [gyan.dev/ffmpeg/builds](https://www.gyan.dev/ffmpeg/builds/)
-2. Extract and add the `bin/` folder to your system PATH
-3. Verify: `ffmpeg -version`
 
-**Linux (Ubuntu/Debian):**
-```bash
-sudo apt update && sudo apt install ffmpeg
-```
-
----
-
-### Run Locally
-
-```bash
-# 1. Clone the repository
+Run locally
 git clone https://github.com/yourname/smart-video-cv-optimizer.git
+
 cd smart-video-cv-optimizer
 
-# 2. Create virtual environment
 python -m venv .venv
 
-# macOS/Linux:
+# macOS/Linux
 source .venv/bin/activate
 
-# Windows:
+# Windows
 .venv\Scripts\activate
 
-# 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Run the app
 streamlit run app.py
-```
+The app should open at:
+http://localhost:8501
 
-The app opens at **http://localhost:8501**
 
----
-
-## 🐳 Docker
-
-```bash
-# Build
+Docker
 docker build -t svcv-optimizer .
 
-# Run
 docker run -p 8501:8501 svcv-optimizer
-```
 
----
 
-## ☁️ Cloud Deployment
+Deploying online
+Streamlit Cloud
+1. Push the project to GitHub
+2. Open:
+Streamlit Community Cloud
+3. Connect the repository
+4. Set app.py as the entry point
+5. Deploy
+FFmpeg is installed through packages.txt.
 
-### Streamlit Cloud (Free)
 
-1. Push your code to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your GitHub repo
-4. **Important:** Streamlit Cloud does NOT include FFmpeg by default.  
-   Add a `packages.txt` file to your repo:
-   ```
-   ffmpeg
-   ```
-5. Deploy — Streamlit will install FFmpeg via `apt`.
+Railway
+Railway
+Railway detects the Dockerfile automatically.
 
-### Railway
 
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
+Render
+Render
+Create a Docker web service and connect the GitHub repository.
 
-# Login and deploy
-railway login
-railway init
-railway up
-```
 
-Railway will auto-detect the `Dockerfile` and deploy accordingly.
-
-### Render
-
-1. Create a new **Web Service** on [render.com](https://render.com)
-2. Connect your GitHub repo
-3. Set the environment to **Docker**
-4. Render will build and deploy from the `Dockerfile`
-5. Set port to **8501**
-
----
-
-## 🗂️ Project Structure
-
-```
+Project structure
 smart-video-cv-optimizer/
-├── app.py              # Main Streamlit UI
-├── analysis.py         # Video metadata extraction (FFprobe)
-├── compression.py      # FFmpeg two-pass compression engine
-├── utils.py            # Formatting, validation, file helpers
-├── requirements.txt    # Python dependencies
-├── Dockerfile          # Production Docker image
+├── app.py
+├── analysis.py
+├── compression.py
+├── utils.py
+├── requirements.txt
+├── Dockerfile
+├── packages.txt
 ├── .gitignore
 ├── .streamlit/
-│   └── config.toml     # Streamlit theme + server config
+│   └── config.toml
 └── README.md
-```
 
----
 
-## ⚙️ Quality Modes Explained
+Compression flow
+1. FFprobe reads the video metadata
+2. The app calculates a bitrate budget from the target size
+3. Resolution is lowered only if needed
+4. FFmpeg runs a two-pass encode
+5. Audio normalization is applied
+6. Temporary files are removed automatically
 
-| Mode | CRF | Preset | Best For |
-|---|---|---|---|
-| **RSSP Optimized** | 21 | medium | Scholarship & university applications |
-| **Maximum Quality** | 18 | slow | When quality is paramount |
-| **Balanced** | 23 | medium | General-purpose compression |
-| **Smallest File** | 28 | fast | Email attachments, strict size limits |
 
----
+Supported input formats
+* .mp4
+* .mov
+* .avi
+* .mkv
+Output is always:
+* H.264 video
+* AAC audio
+* MP4 container
 
-## 🎙️ Audio Processing
 
-All modes apply:
-- **EBU R128 loudness normalization** (`-16 LUFS`) — broadcast standard
-- **High-pass filter at 80 Hz** — removes keyboard/handling noise
-- **Low-pass filter at 8 kHz** — preserves speech, removes hiss
-- **AAC encoding** at 96–192 kbps depending on mode
+Notes
+This project started as a practical tool for application videos, but it turned into a useful media-processing portfolio project too. The hardest part honestly wasn’t the UI. It was getting reliable file-size targeting without making the video look terrible.
+Some videos compress surprisingly well. Others fight you the whole way.
 
----
 
-## 🔧 Technical Details
-
-### Compression Pipeline
-
-1. **Analysis:** FFprobe extracts full metadata
-2. **Bitrate calculation:** Target size → optimal video/audio bitrates
-3. **Resolution check:** Downscale only if bitrate is too low for current resolution
-4. **Two-pass encoding:**
-   - Pass 1: Analyse video complexity
-   - Pass 2: Encode with precise bitrate allocation
-5. **Audio filtering:** Loudness normalization + speech optimization
-6. **Cleanup:** Temp files removed automatically
-
-### Supported Inputs
-
-| Format | Extension |
-|---|---|
-| MP4 | `.mp4` |
-| QuickTime | `.mov` |
-| AVI | `.avi` |
-| Matroska | `.mkv` |
-
-### Output
-
-Always exports as **H.264 + AAC in MP4** — universally compatible.
-
----
-
-## 🤝 Contributing
-
-Pull requests are welcome. Please open an issue first for major changes.
-
----
-
-## 📄 License
-
-MIT License — free for personal and commercial use.
-
----
-
-*Built for RSSP students and scholarship applicants worldwide.*
+License
+MIT License. Use it however you want.
