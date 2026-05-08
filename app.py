@@ -649,135 +649,229 @@ with col_right:
         disabled=compress_disabled,
     )
 
-    # ── Run compression ───────────────────────────────────────────────────────
-    if compress_btn and info is not None and ffmpeg_ok:
-        output_path = make_output_path(st.session_state.input_path)
-        st.session_state.output_path = output_path
-        st.session_state.result = None
+# ── Run compression ───────────────────────────────────────────────────────
+if compress_btn and info is not None and ffmpeg_ok:
 
-        progress_bar_placeholder = st.empty()
-        status_placeholder = st.empty()
+    input_path = st.session_state.get("input_path")
 
-        # Shared state for thread-safe progress updates
-        progress_state = {"pct": 0.0, "label": "Initialising…"}
-        compress_error = {"msg": None}
-        compress_result = {"data": None}
+    if not input_path or not os.path.exists(input_path):
+        st.error("❌ Upload a video first.")
+        st.stop()
 
-        def progress_callback(pct: float, label: str):
-            progress_state["pct"] = pct
-            progress_state["label"] = label
-
-        def run_compression():
-            try:
-                result = compress_video(
-                    input_path=st.session_state.input_path,
-                    output_path=output_path,
-                    video_info=info,
-                    target_size_mb=target_size,
-                    mode=mode_key,
-                    progress_callback=progress_callback,
-                )
-                compress_result["data"] = result
-            except Exception as e:
-                compress_error["msg"] = str(e)
-
-        # Run compression in a thread so we can update UI
-        t = threading.Thread(target=run_compression, daemon=True)
-        t.start()
-
-        while t.is_alive():
-            pct = progress_state["pct"]
-            lbl = progress_state["label"]
-            pct_display = int(pct * 100)
-
-            progress_bar_placeholder.markdown(f"""
-            <div style="margin:0.5rem 0;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.3rem;">
-                    <span style="font-size:0.78rem; font-family:'DM Mono',monospace; color:#64748b;">{lbl}</span>
-                    <span style="font-size:0.78rem; font-family:'DM Mono',monospace; color:#00D4FF;">{pct_display}%</span>
-                </div>
-                <div class="progress-wrap">
-                    <div class="progress-bar" style="width:{pct_display}%;"></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            time.sleep(0.5)
-
-        t.join()
-
-        # Show 100%
-        progress_bar_placeholder.markdown("""
-        <div style="margin:0.5rem 0;">
-            <div class="progress-wrap">
-                <div class="progress-bar" style="width:100%;"></div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if compress_error["msg"]:
-            st.error(f"❌ Compression failed: {compress_error['msg']}")
-        elif compress_result["data"]:
-            st.session_state.result = compress_result["data"]
-            st.rerun()
-
-    # ── Results card ──────────────────────────────────────────────────────────
-    result = st.session_state.result
-    if result is not None:
-        under = result["under_target"]
-        reduction = result["size_reduction_pct"]
-        ratio = result["compression_ratio"]
-        out_size = result["output_size_mb"]
-        in_size = result["input_size_mb"]
-
-        badge_html = (
-            '<span class="badge badge-success">✅ Under Target</span>'
-            if under else
-            '<span class="badge badge-warning">⚠️ Slightly Over Target</span>'
+    if info.file_size_mb <= target_size:
+        st.warning(
+            f"Video is already under target size "
+            f"({format_filesize(info.file_size_mb)} ≤ {target_size} MB)"
         )
+        st.stop()
 
-        st.markdown(f"""
-        <div class="card">
-            <div class="card-title">✨ Compression Complete</div>
-            <div class="reduction-stat">
-                <div class="big-num">{reduction:.0f}%</div>
-                <div class="big-label">Size Reduction</div>
-            </div>
-            <div class="size-compare">
-                <div class="size-box">
-                    <div class="sz-label">Before</div>
-                    <div class="sz-value" style="color:#94a3b8;">{format_filesize(in_size)}</div>
-                </div>
-                <div class="size-arrow">→</div>
-                <div class="size-box">
-                    <div class="sz-label">After</div>
-                    <div class="sz-value" style="color:{'#22c55e' if under else '#f59e0b'};">{format_filesize(out_size)}</div>
-                </div>
-            </div>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem; margin-bottom:1rem;">
-                {badge_html}
-                <span class="badge badge-info">📦 {ratio:.1f}× compression</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    output_path = make_output_path(input_path)
 
-        # Download button
-        output_path = st.session_state.output_path
-        if output_path and os.path.exists(output_path):
-            with open(output_path, "rb") as f:
-                file_bytes = f.read()
+    st.session_state.output_path = output_path
+    st.session_state.result = None
 
-            original_name = st.session_state.last_uploaded_name or "video"
-            stem = Path(original_name).stem
-            download_name = f"{stem}_optimized.mp4"
+    progress_bar_placeholder = st.empty()
 
-            st.download_button(
-                label="⬇️  Download Optimized Video",
-                data=file_bytes,
-                file_name=download_name,
-                mime="video/mp4",
-                use_container_width=True,
+    # Shared state
+    progress_state = {
+        "pct": 0.0,
+        "label": "Initialising..."
+    }
+
+    compress_error = {
+        "msg": None
+    }
+
+    compress_result = {
+        "data": None
+    }
+
+    def progress_callback(pct: float, label: str):
+        progress_state["pct"] = pct
+        progress_state["label"] = label
+
+    def run_compression():
+        try:
+            result = compress_video(
+                input_path=input_path,
+                output_path=output_path,
+                video_info=info,
+                target_size_mb=target_size,
+                mode=mode_key,
+                progress_callback=progress_callback,
             )
 
+            compress_result["data"] = result
+
+        except Exception as e:
+            compress_error["msg"] = str(e)
+
+    # Start thread
+    t = threading.Thread(
+        target=run_compression,
+        daemon=True
+    )
+
+    t.start()
+
+    while t.is_alive():
+
+        pct = progress_state["pct"]
+        lbl = progress_state["label"]
+
+        pct_display = int(pct * 100)
+
+        progress_bar_placeholder.markdown(f"""
+        <div style="margin:0.5rem 0;">
+            <div style="
+                display:flex;
+                justify-content:space-between;
+                margin-bottom:0.3rem;
+            ">
+
+                <span style="
+                    font-size:0.78rem;
+                    font-family:'DM Mono',monospace;
+                    color:#64748b;
+                ">
+                    {lbl}
+                </span>
+
+                <span style="
+                    font-size:0.78rem;
+                    font-family:'DM Mono',monospace;
+                    color:#00D4FF;
+                ">
+                    {pct_display}%
+                </span>
+
+            </div>
+
+            <div class="progress-wrap">
+                <div class="progress-bar"
+                     style="width:{pct_display}%;">
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        time.sleep(0.3)
+
+    t.join()
+
+    # Final progress
+    progress_bar_placeholder.markdown("""
+    <div style="margin:0.5rem 0;">
+        <div class="progress-wrap">
+            <div class="progress-bar" style="width:100%;"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Handle result
+    if compress_error["msg"]:
+
+        st.error(
+            f"❌ Compression failed:\n\n"
+            f"{compress_error['msg']}"
+        )
+
+    elif compress_result["data"]:
+
+        st.session_state.result = compress_result["data"]
+
+        st.success("✅ Compression complete!")
+
+        st.rerun()
+
+
+# ── Results card ──────────────────────────────────────────────────────────
+result = st.session_state.result
+
+if result is not None:
+
+    under = result["under_target"]
+    reduction = result["size_reduction_pct"]
+    ratio = result["compression_ratio"]
+    out_size = result["output_size_mb"]
+    in_size = result["input_size_mb"]
+
+    badge_html = (
+        '<span class="badge badge-success">✅ Under Target</span>'
+        if under else
+        '<span class="badge badge-warning">⚠️ Slightly Over Target</span>'
+    )
+
+    st.markdown(f"""
+    <div class="card">
+        <div class="card-title">✨ Compression Complete</div>
+
+        <div class="reduction-stat">
+            <div class="big-num">{reduction:.0f}%</div>
+            <div class="big-label">Size Reduction</div>
+        </div>
+
+        <div class="size-compare">
+
+            <div class="size-box">
+                <div class="sz-label">Before</div>
+                <div class="sz-value" style="color:#94a3b8;">
+                    {format_filesize(in_size)}
+                </div>
+            </div>
+
+            <div class="size-arrow">→</div>
+
+            <div class="size-box">
+                <div class="sz-label">After</div>
+                <div class="sz-value"
+                     style="color:{'#22c55e' if under else '#f59e0b'};">
+                    {format_filesize(out_size)}
+                </div>
+            </div>
+
+        </div>
+
+        <div style="
+            display:flex;
+            gap:0.5rem;
+            flex-wrap:wrap;
+            margin-top:0.5rem;
+            margin-bottom:1rem;
+        ">
+            {badge_html}
+
+            <span class="badge badge-info">
+                📦 {ratio:.1f}× compression
+            </span>
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Download button
+    output_path = st.session_state.output_path
+
+    if output_path and os.path.exists(output_path):
+
+        with open(output_path, "rb") as f:
+            file_bytes = f.read()
+
+        original_name = (
+            st.session_state.last_uploaded_name or "video"
+        )
+
+        stem = Path(original_name).stem
+
+        download_name = f"{stem}_optimized.mp4"
+
+        st.download_button(
+            label="⬇️ Download Optimized Video",
+            data=file_bytes,
+            file_name=download_name,
+            mime="video/mp4",
+            use_container_width=True,
+        )
 # ══════════════════════════════════════════════════════════════════════════════
 # TIPS SECTION
 # ══════════════════════════════════════════════════════════════════════════════
