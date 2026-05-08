@@ -1,4 +1,5 @@
 Smart Video CV Optimizer
+
 A small web app for compressing scholarship, RSSP, and university application videos without wrecking the quality.
 The main use case is simple: take a 60–90 second phone video and get it under a strict upload limit like 20 MB while keeping the face, voice, and overall image usable.
 Built with Python, Streamlit, and FFmpeg.
