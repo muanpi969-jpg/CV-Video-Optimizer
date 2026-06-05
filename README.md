@@ -71,7 +71,7 @@ pip install -r requirements.txt
 
 streamlit run app.py
 The app should open at:
-http://localhost:8501
+https://muanpi-cv-video-optimizer.streamlit.app/
 
 
 Docker
