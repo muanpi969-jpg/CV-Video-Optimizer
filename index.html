@@ -5,10 +5,15 @@
   <header><span class="tag">PRIVATE VIDEO COMPRESSION</span><h1>Your story.<br /><em>A smaller file.</em></h1><p>Prepare a clear, compact video for your next application. Your video stays in your browser.</p></header>
   <div class="workspace">
     <section class="panel"><h2>01 <span>Choose your video</span></h2><label class="upload" for="video"><strong>Choose a video</strong><span>MP4, MOV, AVI, MKV or WebM · up to 200 MB</span><input id="video" type="file" accept=".mp4,.mov,.avi,.mkv,.webm" /></label><p class="hint">Desktop Chrome or Edge is recommended. Large videos can exceed your device’s available memory.</p><dl id="metadata" hidden></dl></section>
-    <section class="panel"><h2>02 <span>Set your limit</span></h2><label for="target">Maximum output size (MB)</label><input id="target" type="number" min="1" max="100" step="1" value="20" required /><label for="mode">Quality preference</label><select id="mode"><option value="rssp">Fast application video · up to 720p</option><option value="balanced">Balanced · up to 720p</option><option value="quality">Higher quality · up to 1080p (slower)</option><option value="small">Smallest file · up to 480p</option></select><p class="hint">Fast H.264 compression with AAC audio. MP4s already under your limit are ready immediately. Processing stops after five minutes; large videos may need to be shortened first.</p><button id="compress" disabled>Optimize video <span>↗</span></button><button id="cancel" class="secondary" hidden>Cancel processing</button></section>
+    <section class="panel"><h2>02 <span>Set your limit</span></h2>
+      <label for="processor">Processing method</label><select id="processor"><option value="native">Native browser · recommended for Mac</option><option value="compatibility">Compatibility · slower software encoder</option></select>
+      <label for="target">Maximum output size (MB)</label><input id="target" type="number" min="1" max="100" step="1" value="20" required />
+      <label for="mode">Quality preference</label><select id="mode"><option value="rssp">Fast application video · up to 720p</option><option value="balanced">Balanced · up to 720p</option><option value="quality">Higher quality · up to 1080p (slower)</option><option value="small">Smallest file · up to 480p</option></select>
+      <p class="hint">Native mode uses your browser’s video codecs with hardware acceleration where available. Keep this tab visible. MP4s already under your limit are ready immediately. Processing stops after five minutes.</p><button id="compress" disabled>Optimize video <span>↗</span></button><button id="cancel" class="secondary" hidden>Cancel processing</button>
+    </section>
   </div>
   <section class="status" aria-live="polite"><p id="status">Choose a video to get started.</p><progress id="progress" max="100" value="0" hidden></progress><p id="error" role="alert" hidden></p></section>
   <section id="result" class="panel result" hidden><h2>Your video is ready</h2><p id="summary"></p><a id="download" class="download">Download optimized MP4 ↓</a><video id="preview" controls playsinline></video></section>
-  <footer>Runs on your device · No video uploads · No account needed<p>The first analysis downloads a ~32 MB processing engine. Keep this tab open while processing.</p></footer>
+  <footer>Runs on your device · No video uploads · No account needed<p>Native encoder release 2.1 · Only Compatibility mode downloads the ~32 MB software engine.</p></footer>
 </main><script type="module" src="/src/main.js"></script></body>
 </html>
