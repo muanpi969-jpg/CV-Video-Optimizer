@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="description" content="Compress application videos privately in your browser. Choose a size limit and download an optimized MP4." /><title>Smart Video CV Optimizer</title></head>
+<body><main>
+  <header><span class="tag">PRIVATE VIDEO COMPRESSION</span><h1>Your story.<br /><em>A smaller file.</em></h1><p>Prepare a clear, compact video for your next application. Your video stays in your browser.</p></header>
+  <div class="workspace">
+    <section class="panel"><h2>01 <span>Choose your video</span></h2><label class="upload" for="video"><strong>Choose a video</strong><span>MP4, MOV, AVI, MKV or WebM · up to 200 MB</span><input id="video" type="file" accept=".mp4,.mov,.avi,.mkv,.webm" /></label><p class="hint">Desktop Chrome or Edge is recommended. Large videos can exceed your device’s available memory.</p><dl id="metadata" hidden></dl></section>
+    <section class="panel"><h2>02 <span>Set your limit</span></h2><label for="target">Maximum output size (MB)</label><input id="target" type="number" min="1" max="100" step="1" value="20" required /><label for="mode">Quality preference</label><select id="mode"><option value="rssp">Application / scholarship</option><option value="balanced">Balanced</option><option value="quality">Maximum quality</option><option value="small">Smallest file</option></select><p class="hint">Two-pass H.264 video with AAC audio. Processing speed depends on your device.</p><button id="compress" disabled>Optimize video <span>↗</span></button><button id="cancel" class="secondary" hidden>Cancel processing</button></section>
+  </div>
+  <section class="status" aria-live="polite"><p id="status">Choose a video to get started.</p><progress id="progress" max="100" value="0" hidden></progress><p id="error" role="alert" hidden></p></section>
+  <section id="result" class="panel result" hidden><h2>Your video is ready</h2><p id="summary"></p><a id="download" class="download">Download optimized MP4 ↓</a><video id="preview" controls playsinline></video></section>
+  <footer>Runs on your device · No video uploads · No account needed<p>The first analysis downloads a ~32 MB processing engine. Keep this tab open while processing.</p></footer>
+</main><script type="module" src="/src/main.js"></script></body>
+</html>

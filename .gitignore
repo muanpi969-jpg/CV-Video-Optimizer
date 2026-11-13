@@ -1,6 +1,6 @@
+node_modules/
+dist/
+public/ffmpeg/
+.vercel/
 __pycache__/
 *.py[cod]
-.venv/
-venv/
-.pytest_cache/
-.streamlit/secrets.toml
