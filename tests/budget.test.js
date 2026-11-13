@@ -8,3 +8,11 @@ test('silent input uses no audio budget', () => { assert.equal(budget({...info,h
 test('invalid duration and impossible targets fail usefully', () => { assert.throws(()=>budget({...info,duration:NaN},10,'balanced'),/duration/); assert.throws(()=>budget({...info,duration:3600},1,'balanced'),/too long/); assert.throws(()=>budget(info,NaN,'balanced'),/between/); });
 test('metadata preserves track index and accounts for rotation', () => { const parsed = parseMetadata({format:{duration:'12'},streams:[{index:0,codec_type:'video',disposition:{attached_pic:1}},{index:1,codec_type:'video',width:1920,height:1080,side_data_list:[{rotation:90}]},{index:2,codec_type:'audio'}]}); assert.equal(parsed.width,1080); assert.equal(parsed.height,1920); assert.equal(parsed.videoIndex,1); assert.equal(parsed.audioIndex,2); });
 test('missing video track is rejected', () => assert.throws(()=>parseMetadata({streams:[]}),/No video/));
+test('default caps 4K work at 720p/24fps and uses the fast preset', () => {
+  const result = budget({...info,width:3840,height:2160,fps:60},100,'rssp');
+  assert.deepEqual([result.width,result.height,result.fps,result.preset],[1280,720,24,'ultrafast']);
+});
+test('low source frame rates are preserved and quality is capped at 1080p', () => {
+  const result = budget({...info,width:3840,height:2160,fps:15},100,'quality');
+  assert.deepEqual([result.width,result.height,result.fps,result.preset],[1920,1080,15,'veryfast']);
+});

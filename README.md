@@ -31,7 +31,10 @@ The build copies the pinned single-thread FFmpeg core and WebAssembly into versi
 ## Workflow and limits
 
 - MP4, MOV, AVI, MKV and WebM input, up to 200 MB. Actual capacity depends on device memory.
-- H.264 / AAC MP4 output, two-pass encoding, portrait-aware scaling, and a corrective retry if the result exceeds the target.
+- H.264 / AAC MP4 output with a fast single-pass encoder, portrait-aware scaling, and one corrective retry only if the result exceeds the target.
+- The default uses an ultrafast preset with a maximum 720p short edge and 24 fps. Balanced allows up to 30 fps; Higher quality uses a slower preset capped at 1080p. These caps trade detail for faster browser processing. Source frame rates below the cap are preserved.
+- MP4 files already below the chosen limit can be downloaded immediately without re-encoding.
+- Live elapsed time and estimated remaining time appear during encoding. A five-minute overall processing limit stops expensive jobs and releases the worker; analysis has a separate 90-second limit.
 - Targets between 1 and 100 MB. Impossibly small targets show a clear message. Oversized output is never labeled successful.
 - Cancel stops the worker. Choose the video again after cancellation.
 - Desktop Chrome or Edge is recommended. Mobile browsers and large/4K videos may run out of memory. The first analysis downloads an approximately 32 MB engine; browser encoding is slower than native FFmpeg.

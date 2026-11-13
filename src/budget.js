@@ -6,13 +6,15 @@ export function budget(info, targetMB, mode) {
   if (!Number.isFinite(targetMB) || targetMB < 1 || targetMB > 100) throw new Error('Choose an output size between 1 and 100 MB.');
   if (!(info.width >= 2 && info.height >= 2)) throw new Error('Could not read the video dimensions.');
   const audio = info.hasAudio ? (mode === 'quality' ? 192 : mode === 'small' ? 96 : 128) : 0;
-  const video = Math.floor(targetMB * MiB * 8 * 0.94 / info.duration / 1000 - audio);
-  if (video < 150) throw new Error(`This video is too long for that limit. Choose at least ${Math.ceil((150 + audio) * 1000 * info.duration / 8 / MiB / 0.94)} MB or shorten the video.`);
+  const video = Math.floor(targetMB * MiB * 8 * 0.90 / info.duration / 1000 - audio);
+  if (video < 150) throw new Error(`This video is too long for that limit. Choose at least ${Math.ceil((150 + audio) * 1000 * info.duration / 8 / MiB / 0.90)} MB or shorten the video.`);
   const tiers = mode === 'quality' ? [[2160,8000],[1440,5000],[1080,3000],[720,1500],[480,800],[360,0]] : [[2160,5000],[1440,3000],[1080,1500],[720,900],[480,500],[360,0]];
   const shortEdge = Math.min(info.width, info.height);
-  const edge = tiers.find(([size, floor]) => size <= shortEdge && video >= floor)?.[0] ?? Math.min(shortEdge, 360);
+  const maxEdge = mode === 'quality' ? 1080 : mode === 'small' ? 480 : 720;
+  const edge = tiers.find(([size, floor]) => size <= Math.min(shortEdge, maxEdge) && video >= floor)?.[0] ?? Math.min(shortEdge, 360);
   const ratio = Math.min(1, edge / shortEdge);
-  return { video: Math.min(video, 20000), audio, width: Math.max(2, Math.floor(info.width * ratio / 2) * 2), height: Math.max(2, Math.floor(info.height * ratio / 2) * 2) };
+  const fps = Math.min(info.fps || 30, mode === 'rssp' || mode === 'small' ? 24 : 30);
+  return { video: Math.min(video, 20000), audio, fps, preset: mode === 'quality' ? 'veryfast' : 'ultrafast', width: Math.max(2, Math.floor(info.width * ratio / 2) * 2), height: Math.max(2, Math.floor(info.height * ratio / 2) * 2) };
 }
 
 export function parseMetadata(data) {
@@ -24,5 +26,7 @@ export function parseMetadata(data) {
   if (Math.abs(rotation) % 180 === 90) [width, height] = [height, width];
   const duration = Number(data.format?.duration) || Number(stream.duration);
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('Could not read the video duration. Try exporting it as MP4 first.');
-  return { width, height, duration, videoIndex: stream.index, audioIndex: streams.find(s => s.codec_type === 'audio')?.index, hasAudio: streams.some(s => s.codec_type === 'audio') };
+  const [numerator, denominator = '1'] = String(stream.avg_frame_rate || stream.r_frame_rate || '30').split('/');
+  const rate = Number(numerator) / Number(denominator);
+  return { width, height, duration, fps: Number.isFinite(rate) && rate > 0 ? rate : 30, videoIndex: stream.index, audioIndex: streams.find(s => s.codec_type === 'audio')?.index, hasAudio: streams.some(s => s.codec_type === 'audio') };
 }
