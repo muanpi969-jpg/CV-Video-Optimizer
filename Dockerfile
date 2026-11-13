@@ -39,7 +39,7 @@ EXPOSE 8501
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-  CMD curl -f http://localhost:8501/_stcore/health || exit 1
+  CMD python -c "import urllib.request; response = urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=5); assert response.status == 200"
 
 # Run the application
 ENTRYPOINT ["streamlit", "run", "app.py", \

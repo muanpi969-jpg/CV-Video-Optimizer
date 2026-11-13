@@ -55,9 +55,11 @@ ffmpeg -version
 
 
 Run locally
-git clone https://github.com/yourname/smart-video-cv-optimizer.git
+Use Python 3.10 or newer (Python 3.11 is used by the Docker image).
 
-cd smart-video-cv-optimizer
+git clone https://github.com/muanpi969-jpg/CV-Video-Optimizer.git
+
+cd CV-Video-Optimizer
 
 python -m venv .venv
 
@@ -71,7 +73,9 @@ pip install -r requirements.txt
 
 streamlit run app.py
 The app should open at:
-https://muanpi-cv-video-optimizer.streamlit.app/
+http://localhost:8501
+
+The deployed app is at https://muanpi-cv-video-optimizer.streamlit.app/.
 
 
 Docker
@@ -82,13 +86,15 @@ docker run -p 8501:8501 svcv-optimizer
 
 Deploying online
 Streamlit Cloud
-1. Push the project to GitHub
-2. Open:
-Streamlit Community Cloud
-3. Connect the repository
-4. Set app.py as the entry point
-5. Deploy
-FFmpeg is installed through packages.txt.
+1. Push the project changes to the GitHub branch connected to your app.
+2. Open Streamlit Community Cloud and connect `muanpi969-jpg/CV-Video-Optimizer`.
+3. Select the branch to deploy (normally `main`) and set `app.py` as the entry point.
+4. In advanced settings, select a supported Python version of 3.10 or newer; Python 3.11 matches the Docker image.
+5. Deploy, or reboot the existing app after changing system dependencies or Streamlit configuration.
+
+Keep `requirements.txt`, `packages.txt`, and `.streamlit/config.toml` at the repository root paths shown below. Community Cloud installs Streamlit from `requirements.txt` and FFmpeg (including FFprobe) from `packages.txt`; it does not use the Dockerfile. The committed Streamlit configuration sets the upload limit to 500 MB to match the app. No API keys or secrets are needed.
+
+On a hosted deployment, uploaded videos are processed on the app's server. The 500 MB upload limit does not guarantee that every file will fit the hosting plan's memory, CPU, or temporary storage limits.
 
 
 Railway
@@ -102,7 +108,7 @@ Create a Docker web service and connect the GitHub repository.
 
 
 Project structure
-smart-video-cv-optimizer/
+CV-Video-Optimizer/
 ├── app.py
 ├── analysis.py
 ├── compression.py

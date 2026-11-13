@@ -4,9 +4,11 @@ Handles all FFmpeg-based video compression with intelligent quality optimization
 """
 
 import subprocess
+import math
 import os
 import re
-import threading
+import tempfile
+from collections import deque
 from typing import Callable, Optional
 from analysis import VideoInfo, calculate_optimal_bitrates
 
@@ -17,7 +19,6 @@ QUALITY_PRESETS = {
         "crf": 18,
         "preset": "slow",
         "profile": "high",
-        "level": "4.1",
         "audio_codec": "aac",
         "description": "Best possible quality. Larger file, slower encode.",
     },
@@ -25,7 +26,6 @@ QUALITY_PRESETS = {
         "crf": 23,
         "preset": "medium",
         "profile": "high",
-        "level": "4.0",
         "audio_codec": "aac",
         "description": "Great quality with good compression. Recommended.",
     },
@@ -33,7 +33,6 @@ QUALITY_PRESETS = {
         "crf": 28,
         "preset": "fast",
         "profile": "main",
-        "level": "3.1",
         "audio_codec": "aac",
         "description": "Smallest output. Acceptable quality.",
     },
@@ -41,7 +40,6 @@ QUALITY_PRESETS = {
         "crf": 21,
         "preset": "medium",
         "profile": "high",
-        "level": "4.0",
         "audio_codec": "aac",
         "description": "Optimized for scholarship/university application videos.",
     },
@@ -57,6 +55,7 @@ def build_ffmpeg_command(
     two_pass: bool = False,
     pass_num: Optional[int] = None,
     passlog_prefix: Optional[str] = None,
+    video_bitrate_kbps: Optional[int] = None,
 ) -> list[str]:
     """
     Build a complete FFmpeg command for the given compression settings.
@@ -64,8 +63,17 @@ def build_ffmpeg_command(
     """
     preset = QUALITY_PRESETS.get(mode, QUALITY_PRESETS["balanced"])
     bitrates = calculate_optimal_bitrates(video_info, target_size_mb, mode)
+    if video_bitrate_kbps is not None:
+        bitrates["video_bitrate"] = video_bitrate_kbps
 
-    cmd = ["ffmpeg", "-y", "-i", input_path]
+    if two_pass and (pass_num not in (1, 2) or not passlog_prefix):
+        raise ValueError("Two-pass encoding requires a pass number and a log prefix.")
+
+    # Match the streams inspected by get_video_info, rather than letting FFmpeg
+    # pick a different (for example, higher-resolution) track automatically.
+    cmd = ["ffmpeg", "-nostdin", "-y", "-i", input_path, "-map", "0:v:0"]
+    if video_info.has_audio and not (two_pass and pass_num == 1):
+        cmd += ["-map", "0:a:0"]
 
     # ── Video filters ──────────────────────────────────────────────────────────
     vf_filters = []
@@ -73,6 +81,10 @@ def build_ffmpeg_command(
     if bitrates["scale"]:
         # Use Lanczos for high-quality downscaling
         vf_filters.append(f"scale={bitrates['scale']}:flags=lanczos")
+
+    # H.264 with yuv420p requires even dimensions, including when no scaling
+    # was needed (screen recordings can have odd widths or heights).
+    vf_filters.append("pad=ceil(iw/2)*2:ceil(ih/2)*2")
 
     # Normalize FPS
     target_fps = bitrates["fps"]
@@ -86,7 +98,6 @@ def build_ffmpeg_command(
     cmd += [
         "-c:v", "libx264",
         "-profile:v", preset["profile"],
-        "-level", preset["level"],
         "-pix_fmt", "yuv420p",
     ]
 
@@ -170,68 +181,95 @@ def compress_video(
     Uses two-pass encoding for precise size targeting.
     Returns a result dict with output path, sizes, and compression ratio.
     """
-    passlog_prefix = output_path.replace(".mp4", "_pass")
+    if os.path.realpath(input_path) == os.path.realpath(output_path):
+        raise ValueError("Input and output must be different files.")
+    bitrates = calculate_optimal_bitrates(video_info, target_size_mb, mode)
+    if not bitrates.get("target_feasible", True):
+        raise ValueError(
+            "Target size is too small for this video's duration. "
+            f"Choose at least {math.ceil(bitrates['minimum_target_size_mb'])} MB."
+        )
 
-    def _run(cmd: list, stage: str) -> None:
-        """Run FFmpeg and stream progress updates."""
-        process = subprocess.Popen(
+    def _run(cmd: list, stage: str, offset: float, span: float) -> None:
+        """Run FFmpeg, retain diagnostics, and report overall two-pass progress."""
+        errors = deque(maxlen=20)
+        with subprocess.Popen(
             cmd,
             stderr=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             text=True,
+            errors="replace",
             bufsize=1,
+        ) as process:
+            try:
+                duration = video_info.duration
+                for line in process.stderr:
+                    errors.append(line.rstrip())
+                    if progress_callback and "time=" in line:
+                        m = re.search(r"time=(\d+):(\d+):([\d.]+)", line)
+                        if m:
+                            h, mn, seconds = int(m.group(1)), int(m.group(2)), float(m.group(3))
+                            elapsed = h * 3600 + mn * 60 + seconds
+                            pct = min(max(elapsed / duration, 0.0), 1.0)
+                            progress_callback(offset + pct * span, stage)
+                process.wait()
+            finally:
+                # A callback error must not leave an encoder running in the
+                # background or block waiting for its stderr pipe to drain.
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+            if process.returncode != 0:
+                detail = "\n".join(errors)[-4000:]
+                raise RuntimeError(f"FFmpeg failed during {stage}\n{detail}")
+
+    def _encode(video_bitrate: int, progress_start: float, progress_span: float,
+                retry: bool = False) -> None:
+        # Dedicated logs avoid collisions and work even when a directory or
+        # output filename contains '.mp4'. The context cleans every FFmpeg log.
+        with tempfile.TemporaryDirectory(prefix="svcv_pass_") as log_dir:
+            passlog_prefix = os.path.join(log_dir, "encode")
+            half_span = progress_span / 2
+            label_prefix = "Size correction — " if retry else ""
+            for pass_num, label, offset in (
+                (1, "Pass 1: Analysing video...", progress_start),
+                (2, "Pass 2: Encoding output...", progress_start + half_span),
+            ):
+                stage = label_prefix + label
+                if progress_callback:
+                    progress_callback(offset, stage)
+                cmd = build_ffmpeg_command(
+                    input_path, output_path, video_info,
+                    target_size_mb, mode,
+                    two_pass=True, pass_num=pass_num,
+                    passlog_prefix=passlog_prefix,
+                    video_bitrate_kbps=video_bitrate,
+                )
+                _run(cmd, stage, offset, half_span)
+
+    initial_bitrate = bitrates["video_bitrate"]
+    _encode(initial_bitrate, 0.0, 0.9)
+
+    # Short or unusually complex clips can overshoot x264's requested two-pass
+    # bitrate. Retry only on a miss, correcting from the measured output size.
+    target_bytes = target_size_mb * 1024 * 1024
+    output_bytes = os.path.getsize(output_path) if os.path.isfile(output_path) else 0
+    if output_bytes > target_bytes:
+        corrected_bitrate = max(
+            300,
+            int(initial_bitrate * target_bytes / output_bytes * 0.97),
         )
+        if corrected_bitrate < initial_bitrate:
+            _encode(corrected_bitrate, 0.9, 0.1, retry=True)
 
-        duration = video_info.duration
-        for line in process.stderr:
-            if progress_callback and "time=" in line:
-                # Parse elapsed time from FFmpeg output
-                m = re.search(r"time=(\d+):(\d+):([\d.]+)", line)
-                if m:
-                    h, mn, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
-                    elapsed = h * 3600 + mn * 60 + s
-                    pct = min(elapsed / duration, 1.0) if duration > 0 else 0
-                    progress_callback(pct, stage)
-
-        process.wait()
-        if process.returncode != 0:
-            raise RuntimeError(f"FFmpeg failed during {stage}.")
-
-    try:
-        # ── Pass 1 ─────────────────────────────────────────────────────────────
-        if progress_callback:
-            progress_callback(0.0, "Pass 1: Analysing video...")
-
-        cmd_pass1 = build_ffmpeg_command(
-            input_path, output_path, video_info,
-            target_size_mb, mode,
-            two_pass=True, pass_num=1, passlog_prefix=passlog_prefix
-        )
-        _run(cmd_pass1, "Pass 1: Analysing video...")
-
-        # ── Pass 2 ─────────────────────────────────────────────────────────────
-        if progress_callback:
-            progress_callback(0.5, "Pass 2: Encoding output...")
-
-        cmd_pass2 = build_ffmpeg_command(
-            input_path, output_path, video_info,
-            target_size_mb, mode,
-            two_pass=True, pass_num=2, passlog_prefix=passlog_prefix
-        )
-        _run(cmd_pass2, "Pass 2: Encoding output...")
-
-    finally:
-        # Clean up pass log files
-        for ext in ["-0.log", "-0.log.mbtree", ".log", ".log.mbtree"]:
-            f = passlog_prefix + ext
-            if os.path.exists(f):
-                try:
-                    os.remove(f)
-                except OSError:
-                    pass
-
-    if not os.path.exists(output_path):
-        raise RuntimeError("Output file was not created.")
+    if not os.path.isfile(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError("Output file was not created or is empty.")
+    if progress_callback:
+        progress_callback(1.0, "Compression complete.")
 
     output_size_mb = os.path.getsize(output_path) / (1024 * 1024)
 

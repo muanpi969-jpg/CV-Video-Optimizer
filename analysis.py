@@ -6,6 +6,7 @@ Extracts comprehensive metadata from uploaded video files using FFprobe.
 import subprocess
 import json
 import os
+import math
 from typing import Optional
 from dataclasses import dataclass
 
@@ -28,10 +29,28 @@ class VideoInfo:
     pixel_format: str
 
 
+def _positive_number(value, default: float = 0.0) -> float:
+    """Read optional FFprobe numbers, which may be null or the string N/A."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) and number > 0 else default
+
+
+def _frame_rate(value) -> float:
+    try:
+        numerator, separator, denominator = str(value).partition("/")
+        rate = float(numerator) / float(denominator) if separator else float(numerator)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+    return rate if math.isfinite(rate) and rate > 0 else 0.0
+
+
 def get_video_info(filepath: str) -> Optional[VideoInfo]:
     """
     Extract full video metadata using FFprobe.
-    Returns None if the file cannot be analyzed.
+    Raises an error if the file cannot be analyzed or has no usable video duration.
     """
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Video file not found: {filepath}")
@@ -75,41 +94,34 @@ def get_video_info(filepath: str) -> Optional[VideoInfo]:
     if video_stream is None:
         raise ValueError("No video stream found in file.")
 
-    fmt = data.get("format", {})
-    file_size_bytes = int(fmt.get("size", 0))
-    duration = float(fmt.get("duration", 0))
-    total_bitrate = int(fmt.get("bit_rate", 0)) // 1000  # convert to kbps
+    fmt = data.get("format") or {}
+    file_size_bytes = int(_positive_number(fmt.get("size"), os.path.getsize(filepath)))
+    duration = _positive_number(fmt.get("duration")) or _positive_number(video_stream.get("duration"))
+    if not duration:
+        raise ValueError("Video duration is missing or invalid; cannot calculate a target bitrate.")
+    total_bitrate = int(_positive_number(fmt.get("bit_rate"), file_size_bytes * 8 / duration) / 1000)
 
-    # Resolution
-    width = int(video_stream.get("width", 0))
-    height = int(video_stream.get("height", 0))
+    width = int(_positive_number(video_stream.get("width")))
+    height = int(_positive_number(video_stream.get("height")))
+    if width < 2 or height < 2:
+        raise ValueError("Video dimensions are missing or invalid.")
 
-    # FPS — handle fraction strings like "30000/1001"
-    fps_raw = video_stream.get("r_frame_rate", "30/1")
-    try:
-        if "/" in fps_raw:
-            num, den = fps_raw.split("/")
-            fps = float(num) / float(den) if float(den) != 0 else 30.0
-        else:
-            fps = float(fps_raw)
-    except (ValueError, ZeroDivisionError):
-        fps = 30.0
-
-    # Bitrates
-    video_bitrate = int(video_stream.get("bit_rate", 0))
-    if video_bitrate == 0 and total_bitrate > 0:
-        # Estimate: assume audio is ~128 kbps
-        video_bitrate = max(0, (total_bitrate - 128)) * 1000
-    video_bitrate_kbps = video_bitrate // 1000
+    # Average rate describes playback for variable-frame-rate recordings.
+    fps = (_frame_rate(video_stream.get("avg_frame_rate"))
+           or _frame_rate(video_stream.get("r_frame_rate"))
+           or 30.0)
 
     has_audio = audio_stream is not None
     audio_bitrate_kbps = 0
     codec_audio = "none"
-
     if has_audio:
-        audio_bitrate_raw = int(audio_stream.get("bit_rate", 0))
-        audio_bitrate_kbps = audio_bitrate_raw // 1000 if audio_bitrate_raw else 128
+        audio_bitrate_kbps = int(_positive_number(audio_stream.get("bit_rate"), 128000) / 1000)
         codec_audio = audio_stream.get("codec_name", "unknown")
+
+    # Streams in some containers omit bitrates. Deduct audio only when present.
+    video_bitrate_kbps = int(_positive_number(video_stream.get("bit_rate")) / 1000)
+    if video_bitrate_kbps == 0:
+        video_bitrate_kbps = max(0, total_bitrate - audio_bitrate_kbps)
 
     return VideoInfo(
         duration=duration,
@@ -135,7 +147,7 @@ def estimate_output_size_mb(
 ) -> float:
     """
     Estimate output file size in MB given bitrates and duration.
-    Formula: (video_kbps + audio_kbps) * duration_seconds / 8 / 1024
+    Formula: (video_kbps + audio_kbps) * 1000 * duration_seconds / 8 / 1024**2
     """
     total_kbps = video_bitrate_kbps + audio_bitrate_kbps
     size_bytes = (total_kbps * 1000 * duration) / 8
@@ -149,8 +161,16 @@ def calculate_optimal_bitrates(
 ) -> dict:
     """
     Calculate optimal video and audio bitrates to hit the target size.
-    Returns a dict with video_bitrate, audio_bitrate, scale, and fps.
+    Includes target_feasible and minimum_target_size_mb so callers can reject
+    targets below the minimum video/audio budget instead of promising an oversize file.
     """
+    if not _positive_number(video_info.duration):
+        raise ValueError("Video duration must be finite and greater than zero.")
+    if not _positive_number(target_size_mb):
+        raise ValueError("Target size must be finite and greater than zero.")
+    if video_info.width < 2 or video_info.height < 2:
+        raise ValueError("Video dimensions must be at least 2 by 2 pixels.")
+
     # Audio bitrate by mode
     audio_bitrate_map = {
         "maximum_quality": 192,
@@ -166,11 +186,13 @@ def calculate_optimal_bitrates(
     audio_bits = audio_bitrate * 1000 * video_info.duration
     video_bits = total_bits - audio_bits
     video_bitrate_kbps = int(video_bits / video_info.duration / 1000)
+    minimum_target_size_mb = estimate_output_size_mb(video_info.duration, 300, audio_bitrate) / 0.97
+    target_feasible = target_size_mb >= minimum_target_size_mb
 
     # --- Resolution scaling strategy ---
     width = video_info.width
     height = video_info.height
-    fps = video_info.fps
+    fps = _positive_number(video_info.fps, 30.0)
     scale = None  # None = no rescaling
 
     # Minimum acceptable video bitrates (kbps) per resolution
@@ -182,33 +204,23 @@ def calculate_optimal_bitrates(
     }
     floors = quality_floors.get(mode, quality_floors["balanced"])
 
-    def current_floor():
-        if height >= 2160: return floors[2160]
-        if height >= 1440: return floors[1440]
-        if height >= 1080: return floors[1080]
-        if height >= 720:  return floors[720]
+    def current_floor(target_height):
+        if target_height >= 2160: return floors[2160]
+        if target_height >= 1440: return floors[1440]
+        if target_height >= 1080: return floors[1080]
+        if target_height >= 720: return floors[720]
         return floors[480]
 
-    # Downscale resolution if bitrate is too low for current resolution
+    # Reassess the quality floor at each tier and stop once the budget fits.
     target_h = height
-    while video_bitrate_kbps < current_floor() and target_h > 360:
-        # Drop to next resolution tier
-        if target_h > 1080:
-            target_h = 1080
-        elif target_h > 720:
-            target_h = 720
-        elif target_h > 480:
-            target_h = 480
-        elif target_h > 360:
-            target_h = 360
-        # Recalculate — lower res can use same bits for better quality
-        # (no recalculation needed, but note the new target)
+    while video_bitrate_kbps < current_floor(target_h) and target_h > 360:
+        target_h = next(tier for tier in (2160, 1440, 1080, 720, 480, 360) if tier < target_h)
 
     if target_h != height:
         # Calculate proportional width (keep aspect ratio, ensure even numbers)
         ratio = target_h / height
         target_w = int(width * ratio)
-        target_w = target_w if target_w % 2 == 0 else target_w - 1
+        target_w = max(2, target_w - target_w % 2)
         scale = f"{target_w}:{target_h}"
 
     # FPS: reduce to 30 if original is higher, for file size savings
@@ -228,6 +240,8 @@ def calculate_optimal_bitrates(
         "audio_bitrate": audio_bitrate,
         "scale": scale,
         "fps": target_fps,
+        "target_feasible": target_feasible,
+        "minimum_target_size_mb": minimum_target_size_mb,
         "estimated_size_mb": estimate_output_size_mb(
             video_info.duration, video_bitrate_kbps, audio_bitrate
         ),

@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import threading
+import math
 from pathlib import Path
 
 import streamlit as st
@@ -422,6 +423,10 @@ if "output_path" not in st.session_state:
     st.session_state.output_path = None
 if "last_uploaded_name" not in st.session_state:
     st.session_state.last_uploaded_name = None
+if "last_uploaded_id" not in st.session_state:
+    st.session_state.last_uploaded_id = None
+if "upload_error" not in st.session_state:
+    st.session_state.upload_error = None
 if "progress" not in st.session_state:
     st.session_state.progress = 0.0
 if "progress_label" not in st.session_state:
@@ -477,31 +482,38 @@ with col_left:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Detect new upload
-    if uploaded_file is not None:
-        is_new = (uploaded_file.name != st.session_state.last_uploaded_name)
+    # Streamlit assigns each upload an ID, including replacements with the same name.
+    upload_id = uploaded_file.file_id if uploaded_file is not None else None
+    if upload_id != st.session_state.last_uploaded_id:
+        cleanup_temp_file(st.session_state.get("input_path"))
+        cleanup_temp_file(st.session_state.get("output_path"))
+        st.session_state.input_path = None
+        st.session_state.output_path = None
+        st.session_state.video_info = None
+        st.session_state.result = None
+        st.session_state.upload_error = None
+        st.session_state.last_uploaded_id = upload_id
+        st.session_state.last_uploaded_name = (
+            uploaded_file.name if uploaded_file is not None else None
+        )
 
-        if is_new:
-            # Cleanup previous temp files
-            cleanup_temp_file(st.session_state.get("input_path"))
-            cleanup_temp_file(st.session_state.get("output_path"))
-            st.session_state.video_info = None
-            st.session_state.result = None
-            st.session_state.output_path = None
-            st.session_state.last_uploaded_name = uploaded_file.name
-
+        if uploaded_file is not None:
             valid, msg = validate_video_file(uploaded_file)
             if not valid:
-                st.error(msg)
+                st.session_state.upload_error = msg
             else:
                 with st.spinner("Analysing video..."):
-                    tmp_path = save_upload_to_temp(uploaded_file)
-                    st.session_state.input_path = tmp_path
                     try:
-                        info = get_video_info(tmp_path)
-                        st.session_state.video_info = info
+                        tmp_path = save_upload_to_temp(uploaded_file)
+                        st.session_state.input_path = tmp_path
+                        st.session_state.video_info = get_video_info(tmp_path)
                     except Exception as e:
-                        st.error(f"Could not read video: {e}")
+                        cleanup_temp_file(st.session_state.input_path)
+                        st.session_state.input_path = None
+                        st.session_state.upload_error = f"Could not read video: {e}"
+
+    if st.session_state.upload_error:
+        st.error(st.session_state.upload_error)
 
     # ── Video analysis card ──────────────────────────────────────────────────
     info = st.session_state.video_info
@@ -605,8 +617,16 @@ with col_right:
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Estimated output card ─────────────────────────────────────────────────
+    target_feasible = True
     if info is not None:
         bitrates = calculate_optimal_bitrates(info, target_size, mode_key)
+        target_feasible = bitrates["target_feasible"]
+        if not target_feasible:
+            st.warning(
+                "This target is too small for the video's duration. "
+                f"Choose at least {math.ceil(bitrates['minimum_target_size_mb'])} MB "
+                "or shorten the video."
+            )
         est_size = bitrates["estimated_size_mb"]
         est_vbr = bitrates["video_bitrate"]
         est_abr = bitrates["audio_bitrate"]
@@ -641,7 +661,7 @@ with col_right:
         """, unsafe_allow_html=True)
 
     # ── Compress button ───────────────────────────────────────────────────────
-    compress_disabled = (info is None) or (not ffmpeg_ok)
+    compress_disabled = (info is None) or (not ffmpeg_ok) or (not target_feasible)
     compress_btn = st.button(
         "🚀  Compress Video",
         use_container_width=True,
@@ -665,6 +685,7 @@ if compress_btn and info is not None and ffmpeg_ok:
         )
         st.stop()
 
+    cleanup_temp_file(st.session_state.get("output_path"))
     output_path = make_output_path(input_path)
 
     st.session_state.output_path = output_path
@@ -770,7 +791,9 @@ if compress_btn and info is not None and ffmpeg_ok:
 
     # Handle result
     if compress_error["msg"]:
-
+        progress_bar_placeholder.empty()
+        cleanup_temp_file(st.session_state.output_path)
+        st.session_state.output_path = None
         st.error(
             f"❌ Compression failed:\n\n"
             f"{compress_error['msg']}"
@@ -907,6 +930,6 @@ ffmpeg_str = ffmpeg_ver.split("ffmpeg version ")[-1].split(" ")[0] if ffmpeg_ver
 st.markdown(f"""
 <div class="app-footer">
     Smart Video CV Optimizer · Built with FFmpeg {ffmpeg_str} · Streamlit ·
-    No data leaves your device · Open source
+    Videos are processed on the app server · Open source
 </div>
 """, unsafe_allow_html=True)
