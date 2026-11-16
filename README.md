@@ -2,14 +2,7 @@
 
 A Vercel-ready app for compressing application videos to a selected size limit. The default encoder uses native browser video codecs (WebCodecs), allowing the browser to use hardware acceleration where supported. Video files are never uploaded to Vercel; no API keys or backend services are required.
 
-## Deploy to Vercel
 
-1. Import `muanpi969-jpg/CV-Video-Optimizer` into Vercel and select `main`.
-2. Keep the root directory at the repository root. Select the **Vite** framework.
-3. Build command: `npm run build`. Output directory: `dist`. These settings are also in `vercel.json`.
-4. Deploy. No environment variables are needed. Future pushes to the connected branch trigger deployments.
-
-This version replaces Streamlit. Use the new Vercel URL; Streamlit Cloud no longer runs this version.
 
 ## Develop locally
 
